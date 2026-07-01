@@ -5,6 +5,7 @@
 package builder
 
 import (
+	"math"
 	"math/big"
 	"strconv"
 	"strings"
@@ -93,12 +94,30 @@ func valueToString(v Value) (s string, ok bool) {
 // hot path; a host value that already renders itself is honoured.
 type fmtStringer interface{ String() string }
 
-// rubyFloat formats a float the way Ruby's Float#to_s does for the common cases
-// that appear in markup: an integral float keeps a trailing ".0", and other
-// values use the shortest round-tripping decimal.
+// rubyFloat formats a float the way Ruby's Float#to_s does for the values that
+// appear in markup: the shortest round-tripping decimal, with a decimal point
+// always present in the mantissa — an integral value keeps a trailing ".0"
+// (3 -> "3.0") and an exponential form keeps ".0" before the "e" (1e21 ->
+// "1.0e+21"), matching MRI. Infinities and NaN render as Ruby's Infinity /
+// -Infinity / NaN.
 func rubyFloat(f float64) string {
+	switch {
+	case math.IsInf(f, 1):
+		return "Infinity"
+	case math.IsInf(f, -1):
+		return "-Infinity"
+	case math.IsNaN(f):
+		return "NaN"
+	}
 	s := strconv.FormatFloat(f, 'g', -1, 64)
-	if !strings.ContainsAny(s, ".eEnN") {
+	if i := strings.IndexAny(s, "eE"); i >= 0 {
+		// Ensure the mantissa carries a decimal point before the exponent.
+		if !strings.Contains(s[:i], ".") {
+			s = s[:i] + ".0" + s[i:]
+		}
+		return s
+	}
+	if !strings.Contains(s, ".") {
 		s += ".0"
 	}
 	return s

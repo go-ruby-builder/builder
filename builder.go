@@ -279,22 +279,37 @@ func (x *XmlMarkup) Instruct(directive string, attrs Attrs) string {
 }
 
 // Declare emits a markup declaration such as a DOCTYPE — Builder's declare!.
-// Each arg is emitted per its type: a [Symbol] (or a bare identifier passed as a
-// string via Sym) prints unquoted, and any other value prints double-quoted.
-// Use [Sym] to mark an unquoted identifier and a plain string for a quoted one.
+// Each arg is emitted per its type: a [Symbol] (an unquoted identifier, e.g.
+// Sym("html")) prints bare, a string prints double-quoted, and a func (func()
+// or func(*XmlMarkup)) is the internal-subset block, emitted between " [" and
+// "]" with its body nested one level deeper. Other values print double-quoted
+// via to_s.
 func (x *XmlMarkup) Declare(inst string, args ...any) string {
 	x.indentLine()
 	x.target.WriteString("<!" + inst)
+	var block func(*XmlMarkup)
 	for _, arg := range args {
 		switch a := arg.(type) {
 		case Symbol:
 			x.target.WriteString(" " + string(a))
 		case string:
 			x.target.WriteString(` "` + a + `"`)
+		case func(*XmlMarkup):
+			block = a
+		case func():
+			block = func(*XmlMarkup) { a() }
 		default:
 			s, _ := valueToString(a)
 			x.target.WriteString(` "` + s + `"`)
 		}
+	}
+	if block != nil {
+		x.target.WriteString(" [")
+		x.newline()
+		x.level++
+		block(x)
+		x.level--
+		x.target.WriteString("]")
 	}
 	x.target.WriteString(">")
 	x.newline()
